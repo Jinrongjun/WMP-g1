@@ -1,0 +1,20 @@
+1. train
+conda activate WMP
+cd rsl_rl
+pip install -e .
+cd ..
+cd legged_gym
+pip install -e .
+cd ..
+python legged_gym/scripts/train.py --task=a1_amp --headless --sim_device=cuda:0 --rl_device=cuda:0
+
+2. play
+conda activate isaac
+cd 
+cd rsl_rl
+pip install -e .
+cd ..
+cd legged_gym
+pip install -e .
+cd scripts/
+python play.py 
