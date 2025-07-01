@@ -133,7 +133,7 @@ class WMPRunnerG1:
         min_std = (
                 torch.tensor(self.cfg["min_normalized_std"], device=self.device) *
                 (torch.abs(self.env.dof_pos_limits[:, 1] - self.env.dof_pos_limits[:, 0])))
-        self.alg: PPO = alg_class(actor_critic, discriminator, amp_data, amp_normalizer, device=self.device,
+        self.alg: AMPPPO = alg_class(actor_critic, discriminator, amp_data, amp_normalizer, device=self.device,
                                   min_std=min_std, **self.alg_cfg, use_amp = self.use_amp)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
