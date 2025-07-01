@@ -69,7 +69,7 @@ def play(args):
 
     env_cfg.domain_rand.randomize_action_latency = False
     env_cfg.domain_rand.push_robots = False
-    env_cfg.domain_rand.randomize_gains = True # =True For A1-amp
+    env_cfg.domain_rand.randomize_gains = False # =True For A1-amp
     # env_cfg.domain_rand.randomize_base_mass = False
     env_cfg.domain_rand.randomize_link_mass = False
     # env_cfg.domain_rand.randomize_com_pos = False
@@ -166,10 +166,13 @@ def play(args):
     img_idx = 0
 
     history_length = 5
+    # trajectory_history, obs_without_command indexes modified for G1
     trajectory_history = torch.zeros(size=(env.num_envs, history_length, env.num_obs -
-                                            env.privileged_dim - env.height_dim - 3), device = env.device)
-    obs_without_command = torch.concat((obs[:, env.privileged_dim:env.privileged_dim + 6],
-                                        obs[:, env.privileged_dim + 9:-env.height_dim]), dim=1)
+                                                    env.privileged_dim - env.height_dim - 3),
+                                              device=env.device)
+    obs_without_command = torch.concat((obs[:, :6],
+                                            obs[:, 9: env.num_obs - env.privileged_dim - env.height_dim]), dim=1)
+    
     trajectory_history = torch.concat((trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)
 
     world_model = ppo_runner._world_model.to(env.device)
@@ -179,7 +182,7 @@ def play(args):
     wm_action_history = torch.zeros(size=(env.num_envs, wm_update_interval, env.num_actions),
                                     device=env.device)
     wm_obs = {
-        "prop": obs[:, env.privileged_dim: env.privileged_dim + env.cfg.env.prop_dim],
+        "prop": obs[:, :env.cfg.env.prop_dim].to(world_model.device), # modified for G1
         "is_first": wm_is_first,
     }
 
@@ -214,7 +217,7 @@ def play(args):
         wm_action_history = torch.concat(
             (wm_action_history[:, 1:], actions.unsqueeze(1)), dim=1)
         wm_obs = {
-            "prop": obs[:, env.privileged_dim: env.privileged_dim + env.cfg.env.prop_dim],
+            "prop": obs[:, :env.cfg.env.prop_dim].to(world_model.device), # modified for G1
             "is_first": wm_is_first,
         }
         if (env.cfg.depth.use_camera):
@@ -232,9 +235,9 @@ def play(args):
         # process trajectory history
         env_ids = dones.nonzero(as_tuple=False).flatten()
         trajectory_history[env_ids] = 0
-        obs_without_command = torch.concat((obs[:, env.privileged_dim:env.privileged_dim + 6],
-                                            obs[:, env.privileged_dim + 9:-env.height_dim]),
-                                           dim=1)
+        obs_without_command = torch.concat((obs[:, :6], 
+                                            obs[:, 9: env.num_obs - env.privileged_dim - env.height_dim]),
+                                            dim=1)
         trajectory_history = torch.concat(
             (trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)
 
