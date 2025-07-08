@@ -35,24 +35,22 @@ import glob
 
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
-# MOTION_FILES = glob.glob('datasets/mocap_motions/*')  # a list of csv file paths
-
-MOTION_FILES = glob.glob('datasets/g1/walk.csv') # modified for G1
+MOTION_FILES = glob.glob('datasets/mocap_motions/*')
 
 # Modofied from A1 WMP config
 class G1Cfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
         num_envs = 4096
         include_history_steps = None  # Number of steps of history to include.
-        prop_dim = 69 # proprioception, 3*base_ang_vel  + 3*gravity + 3*command + 29*dof_pos + 29*dof_vel + 2*phase
-        action_dim = 29 # num_dof
-        num_actions = 29
-        privileged_dim = 18 + 3  # (removed)29*kp + 29*kd  + 18*contact_flag(number of joints included in penalize_contacts_on) + (removed for early training)6*DR_param + 3*base_lin_vel privileged_obs[:,:privileged_dim] is the privileged information in privileged_obs, include 3-dim base linear vel
+        prop_dim = 65 # proprioception, 3*base_ang_vel  + 3*gravity + 3*command + 27*dof_pos + 27*dof_vel + 2*phase
+        action_dim = 27 # num_dof
+        num_actions = 27
+        privileged_dim = 18 + 3  # (removed)27*kp + 27*kd  + 18*contact_flag(number of joints included in penalize_contacts_on) + (removed for early training)6*DR_param + 3*base_lin_vel privileged_obs[:,:privileged_dim] is the privileged information in privileged_obs, include 3-dim base linear vel
         height_dim = 187  # privileged_obs[:,-height_dim:] is the heightmap in privileged_obs
         forward_height_dim = 525 # for depth image prediction
 
         env_name = 'g1'
-        use_amp = True
+        use_amp = False
         forward_height_dim = 525 # for depth image prediction
         num_observations = prop_dim + privileged_dim + height_dim + action_dim - 3
         num_privileged_obs = prop_dim + privileged_dim + height_dim + action_dim
@@ -98,41 +96,39 @@ class G1Cfg(LeggedRobotCfg):
 
     class init_state(LeggedRobotCfg.init_state):
         pos = [0.0, 0.0, 0.80]  # x,y,z [m]
-        default_joint_angles = {  ### height = 0.7429
-                    'left_hip_pitch_joint': -0.2, 
-                    'left_hip_roll_joint': -0.0, 
-                    'left_hip_yaw_joint': 0.0, 
-                    'left_knee_joint': 0.42, 
-                    'left_ankle_pitch_joint': -0.23,
-                    'left_ankle_roll_joint': 0.0, 
-                    'right_hip_pitch_joint': -0.2, 
-                    'right_hip_roll_joint': 0.0, 
-                    'right_hip_yaw_joint': 0.0, 
-                    'right_knee_joint': 0.42, 
-                    'right_ankle_pitch_joint': -0.23, 
-                    'right_ankle_roll_joint': 0.0, 
-                    'waist_yaw_joint': 0.0,
-                    'waist_roll_joint': 0.0,
-                    'waist_pitch_joint': 0.0,
-                    # 'left_shoulder_pitch_joint': 0.25,
-                    'left_shoulder_pitch_joint': 0.0,
-                    'left_shoulder_roll_joint': 0.2,
-                    'left_shoulder_yaw_joint': 0.15,
-                    # 'left_elbow_joint': 0.85,
-                    'left_elbow_joint': 1.2,
-                    'left_wrist_roll_joint': 0.0,
-                    'left_wrist_pitch_joint': 0.0,
-                    'left_wrist_yaw_joint': 0.0,
-                    # 'right_shoulder_pitch_joint': 0.25,
-                    'right_shoulder_pitch_joint': 0.0,
-                    'right_shoulder_roll_joint': -0.2,
-                    'right_shoulder_yaw_joint': -0.15,
-                    # 'right_elbow_joint': 0.85,
-                    'right_elbow_joint': 1.2,
-                    'right_wrist_roll_joint': 0.0,
-                    'right_wrist_pitch_joint': 0.0,
-                    'right_wrist_yaw_joint': 0.0,
-                }
+        default_joint_angles = {  # = target angles [rad] when action = 0.0
+            'left_hip_pitch_joint': -0.2, 
+            'left_hip_roll_joint': -0.0, 
+            'left_hip_yaw_joint': 0.0, 
+            'left_knee_joint': 0.42, 
+            'left_ankle_pitch_joint': -0.23,
+            'left_ankle_roll_joint': 0.0, 
+            'right_hip_pitch_joint': -0.2, 
+            'right_hip_roll_joint': 0.0, 
+            'right_hip_yaw_joint': 0.0, 
+            'right_knee_joint': 0.42, 
+            'right_ankle_pitch_joint': -0.23, 
+            'right_ankle_roll_joint': 0.0, 
+            'waist_yaw_joint': 0.0,
+            # 'left_shoulder_pitch_joint': 0.25,
+            'left_shoulder_pitch_joint': 0.0,
+            'left_shoulder_roll_joint': 0.2,
+            'left_shoulder_yaw_joint': 0.15,
+            # 'left_elbow_joint': 0.85,
+            'left_elbow_joint': 1.2,
+            'left_wrist_roll_joint': 0.0,
+            'left_wrist_pitch_joint': 0.0,
+            'left_wrist_yaw_joint': 0.0,
+            # 'right_shoulder_pitch_joint': 0.25,
+            'right_shoulder_pitch_joint': 0.0,
+            'right_shoulder_roll_joint': -0.2,
+            'right_shoulder_yaw_joint': -0.15,
+            # 'right_elbow_joint': 0.85,
+            'right_elbow_joint': 1.2,
+            'right_wrist_roll_joint': 0.0,
+            'right_wrist_pitch_joint': 0.0,
+            'right_wrist_yaw_joint': 0.0,
+        }
 
     class sim:
         dt = 0.005
@@ -161,7 +157,7 @@ class G1Cfg(LeggedRobotCfg):
                      'hip_roll': 150,
                      'hip_yaw': 150,
                      'knee': 200,
-                     'ankle': 100, # ??? 20
+                     'ankle': 20,
                      'waist': 200,
                      'shoulder': 20,
                      'elbow': 20,
@@ -174,7 +170,7 @@ class G1Cfg(LeggedRobotCfg):
                      'hip_roll': 5,
                      'hip_yaw': 5,
                      'knee': 5,
-                     'ankle': 5, # ??? 2
+                     'ankle': 2,
                      'waist': 5,
                      'shoulder': 0.5,
                      'elbow': 0.5,
@@ -183,7 +179,7 @@ class G1Cfg(LeggedRobotCfg):
                      'wrist_yaw': 0.2,
                      }  # [N*m/rad]  # [N*m*s/rad]
         # action scale: target angle = actionScale * action + defaultAngle
-        action_scale = 0.25  # ???
+        action_scale = 0.5
         # decimation: Number of control action updates @ sim DT per policy DT
         decimation = 20
 
@@ -194,8 +190,12 @@ class G1Cfg(LeggedRobotCfg):
         camera_terrain_num_rows = 10
         camera_terrain_num_cols = 20
 
-        position = [0.005267, 0.000299, 0.449869]  # Modified for G1
-        y_angle = [42, 42]  # positive pitch down  TODO: how to decide the rpy
+        # position = [0.27, 0, 0.03]  # TODO: front camera
+        # y_angle = [-5, 5]  # positive pitch down
+        # position = [0.005267, 0.000299, 0.449869]  # Modified for G1
+        position = [0.047645, 0.000299, 0.46268] # camera position, not LiDAR
+        # y_angle = [42, 42]  # positive pitch down  TODO: how to decide the rpy
+        y_angle = [48, 48] # degree
         z_angle = [0, 0]
         x_angle = [0, 0]
 
@@ -214,13 +214,13 @@ class G1Cfg(LeggedRobotCfg):
         invert = True
 
     class asset(LeggedRobotCfg.asset):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_29dof_zy.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1_description/g1_27dof-zy.urdf'
         name = "g1"
         foot_name = "ankle_roll"
         penalize_contacts_on = ["hip", "knee", "shoulder_yaw", "elbow", 'wrist']
             ### 不能包含 waist，胳膊会碰撞身体，不算reset,只能用肩膀的碰撞， 身体的俯仰角， 身体的高度 判断 reset
         # terminate_after_contacts_on = ["shoulder_pitch"] 
-        terminate_after_contacts_on = ["pelvis", "waist" "shoulder_pitch", "knee"]  # original: ["pelvis", "waist" "shoulder_pitch"]
+        terminate_after_contacts_on = ["pelvis", "waist", "shoulder_pitch", "knee"]
 
         body_name = "waist"
         self_collisions = 1  # 1 to disable, 0 to enable...bitwise filter
@@ -262,9 +262,9 @@ class G1Cfg(LeggedRobotCfg):
             ang_vel_yaw = 1.0    # min max [rad/s]
         class obs_scales:
             lin_vel = 1.0
-            ang_vel = 1.0
-            dof_pos = 2.0
-            dof_vel = 0.25
+            ang_vel = 0.25
+            dof_pos = 1.0
+            dof_vel = 0.05
             dof_trq = 0.08
             # privileged
             height_measurements = 1.0
@@ -273,8 +273,8 @@ class G1Cfg(LeggedRobotCfg):
             pd_gains = 5
 
 
-        clip_observations = 20.
-        clip_actions = 20.0
+        clip_observations = 30.
+        clip_actions = 5.0
 
         base_height = 0.75 # base height of G1, used to normalize measured height
 
@@ -299,7 +299,7 @@ class G1Cfg(LeggedRobotCfg):
         reward_curriculum_schedule = [[4000, 10000, 0.1, 1.0]]
         base_pitch_target = -0.1 ### G1
         soft_dof_pos_limit = 0.9
-        base_height_target = 0.75   #0.7 #G1
+        base_height_target = 0.75 #G1
         foot_height_target = 0.15
         tracking_sigma = 0.15  # tracking reward = exp(-error^2/sigma)
         lin_vel_clip = 0.1
@@ -316,7 +316,7 @@ class G1Cfg(LeggedRobotCfg):
 
 
             stand_normal = -0.01 #-0.05 too high
-            base_height = -10.0  ## -1.0
+            base_height = -10.0  ## -10.0
             # dof_acc = -2.5e-7  ### -2.5e-7
             # dof_vel = -1e-5   ### -1e-3
             action_rate = -5e-3  ### -0.005
@@ -432,7 +432,7 @@ class G1CfgPPO(LeggedRobotCfgPPO):
         amp_task_reward_lerp = 0.3
         amp_discr_hidden_dims = [1024, 512]
 
-        min_normalized_std = [0, 0, 0] * 9  + [0, 0]     # TODO: which value? [0.05, 0.02, 0.05] * 4
+        min_normalized_std = [0, 0, 0] * 9      # TODO: which value? [0.05, 0.02, 0.05] * 4
 
     class depth_predictor:
         lr = 3e-4
