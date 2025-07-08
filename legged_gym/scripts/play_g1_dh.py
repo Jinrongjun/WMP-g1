@@ -31,6 +31,9 @@
 # This file may have been modified by Bytedance Ltd. and/or its affiliates (“Bytedance's Modifications”).
 # All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its affiliates.
 
+### TO BE COMPLETE 
+
+
 import os
 import inspect
 import time
@@ -186,10 +189,12 @@ def play(args):
         "is_first": wm_is_first,
     }
 
+
     if (env.cfg.depth.use_camera):
         wm_obs["image"] = torch.zeros(((env.num_envs,) + env.cfg.depth.resized + (1,)),
                                       device=world_model.device)
-
+    else:
+        wm_obs["forward_height_map"] = torch.zeros(((env.num_envs,) + (17,11) + (1,)), device=world_model.device)
     wm_feature = torch.zeros((env.num_envs, ppo_runner.wm_feature_dim), device=env.device)
 
     total_reward = 0
@@ -223,11 +228,19 @@ def play(args):
         if (env.cfg.depth.use_camera):
             wm_obs["image"] = torch.zeros(((env.num_envs,) + env.cfg.depth.resized + (1,)),
                                           device=world_model.device)
+        else:
+            forward_heightmap = env.get_forward_map().to(world_model.device)
+            ppo_runner.wm_buffer_index[reset_env_ids] = 0
+            wm_obs["forward_height_map"][range(env.num_envs), ppo_runner.wm_buffer_index,:] = forward_heightmap[:].to('cpu')
 
         reset_env_ids = reset_env_ids.cpu().numpy()
         if (len(reset_env_ids) > 0):
             wm_action_history[reset_env_ids, :] = 0
             wm_is_first[reset_env_ids] = 1
+        
+        not_reset_env_ids = (1 - wm_is_first).nonzero(as_tuple=False).flatten().cpu().numpy()
+        if (len(not_reset_env_ids) > 0):
+            ppo_runner.wm_buffer_index[not_reset_env_ids] += 1
 
         wm_action = wm_action_history.flatten(1)
 

@@ -49,7 +49,7 @@ class A1AMPCfg(LeggedRobotCfg):
         forward_height_dim = 525 # for depth image prediction
         
         env_name = 'a1'
-        use_amp = False
+        use_amp = True
         num_observations = prop_dim + privileged_dim + height_dim + action_dim
         num_privileged_obs = prop_dim + privileged_dim + height_dim + action_dim
         reference_state_initialization = False
