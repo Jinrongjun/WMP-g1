@@ -213,7 +213,7 @@ class ActorCriticWMP(nn.Module):
 
     def evaluate(self, critic_observations, wm_feature,  **kwargs):
         wm_latent_vector = self.critic_wm_feature_encoder(wm_feature)
-        print("input data size:", critic_observations.shape)
+        # print("input data size:", critic_observations.shape)
         concat_observations = torch.concat((critic_observations, wm_latent_vector),
                                            dim=-1)
 

@@ -44,7 +44,7 @@ from rsl_rl.algorithms import AMPPPO, PPO
 from rsl_rl.modules import ActorCritic, ActorCriticWMP, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
 from rsl_rl.algorithms.amp_discriminator import AMPDiscriminator
-from rsl_rl.datasets.motion_loader import AMPLoader
+from rsl_rl.datasets.g1_motion_loader import AMPLoader  # modified for G1
 from rsl_rl.utils.utils import Normalizer
 from rsl_rl.modules import DepthPredictor
 import torch.optim as optim
@@ -252,7 +252,7 @@ class WMPRunnerG1:
                                         device=self._world_model.device)
         wm_reward = torch.zeros(self.env.num_envs, device=self._world_model.device)
         wm_feature = torch.zeros((self.env.num_envs, self.wm_feature_dim))
-
+        # print("11111")
         self.init_wm_dataset()
 
 
@@ -321,8 +321,7 @@ class WMPRunnerG1:
                             self.wm_buffer["forward_height_map"][range(self.env.num_envs), self.wm_buffer_index,:] = forward_heightmap[:].to('cpu')
                             wm_obs["image"][self.env.depth_index] = infos["depth"].unsqueeze(-1).to(self._world_model.device)
                             self.wm_buffer["image"][range(self.env.cfg.depth.camera_num_envs),
-                            self.wm_buffer_index[self.env.depth_index], :] = wm_obs["image"][self.env.depth_index].to(
-                                'cpu')
+                            self.wm_buffer_index[self.env.depth_index], :] = wm_obs["image"][self.env.depth_index].to('cpu')
                         else:
                             forward_heightmap = self.env.get_forward_map().to(self._world_model.device)
                             self.wm_buffer["forward_height_map"][range(self.env.num_envs), self.wm_buffer_index,:] = forward_heightmap[:].to('cpu')
@@ -456,7 +455,7 @@ class WMPRunnerG1:
             self.wm_buffer["forward_height_map"] = torch.zeros(
                 (self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                  self.env.cfg.env.forward_height_dim), device='cpu')
-
+        print("111")
         self.wm_buffer_index = np.zeros(self.env.num_envs)
 
     def train_depth_predictor(self):

@@ -78,6 +78,7 @@ class AMPPPO:
         if use_amp:
             self.discriminator = discriminator
             self.discriminator.to(self.device)
+            print("Motion state dim is:", discriminator.input_dim // 2)
             self.amp_transition = RolloutStorage.Transition()
             self.amp_storage = ReplayBuffer(
                 discriminator.input_dim // 2, amp_replay_buffer_size, device)
