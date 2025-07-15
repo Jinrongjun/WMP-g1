@@ -48,14 +48,14 @@ import torch
 def train(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # print(args.task,  args.task == 'g1')
-    train_cfg.runner.run_name = 'WMP'
+    # train_cfg.runner.run_name = 'WMP'
 
     train_cfg.runner.max_iterations = 100000
     train_cfg.runner.save_interval = 1000
 
     env, env_cfg = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     print(args.task)
-    if args.task == 'g1':
+    if 'g1' in args.task:
         # print("11")
         ppo_runner, train_cfg = task_registry.make_wmp_runner_g1(env=env, name=args.task, args=args, train_cfg=train_cfg)
     else:

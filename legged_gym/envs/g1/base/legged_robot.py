@@ -461,9 +461,9 @@ class LeggedRobotG1(BaseTask):
                                     self.base_ang_vel  * self.obs_scales.ang_vel, #3
                                     self.projected_gravity, #3
                                     self.commands[:, :3] * self.commands_scale, #3
-                                    (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos, #27
-                                    self.dof_vel * self.obs_scales.dof_vel, #27
-                                    self.actions, #27
+                                    (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos, #29
+                                    self.dof_vel * self.obs_scales.dof_vel, #29
+                                    self.actions, #29
                                     sin_phase, #1
                                     cos_phase, #1
                                     ),dim=-1)
@@ -487,14 +487,14 @@ class LeggedRobotG1(BaseTask):
             if (self.cfg.domain_rand.randomize_com_pos): # 3
                 self.privileged_obs_buf = torch.cat((self.randomized_com_pos * self.obs_scales.com_pos ,self.privileged_obs_buf), dim=-1)
 
-            if (self.cfg.domain_rand.randomize_gains): # 27*2
+            if (self.cfg.domain_rand.randomize_gains): # 29*2
                 self.privileged_obs_buf = torch.cat(((self.randomized_p_gains / self.p_gains - 1) * self.obs_scales.pd_gains ,self.privileged_obs_buf), dim=-1)
                 self.privileged_obs_buf = torch.cat(((self.randomized_d_gains / self.d_gains - 1) * self.obs_scales.pd_gains, self.privileged_obs_buf),
                                                     dim=-1)
             # TODO: how to add sensor_forces
             # contact_force = self.sensor_forces.flatten(1) * self.obs_scales.contact_force
             # self.privileged_obs_buf = torch.cat((contact_force, self.privileged_obs_buf), dim=-1)
-            contact_flag = torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1 #18
+            contact_flag = torch.norm(self.contact_forces[:, self.penalised_contact_indices, :], dim=-1) > 0.1 #13
             self.privileged_obs_buf = torch.cat((contact_flag, self.privileged_obs_buf), dim=-1)
 
         # add noise if needed
@@ -509,6 +509,9 @@ class LeggedRobotG1(BaseTask):
             self.obs_buf = self.privileged_obs_buf[:, 3:]
         else:
             self.obs_buf = torch.clone(self.privileged_obs_buf)
+
+        # obs顺序： privileged obs + prop + height
+            
         ## 初始连接的量
         # print("base_lin_vel * obs_scales.lin_vel:", (self.base_lin_vel * self.obs_scales.lin_vel).shape)  
         # print("base_ang_vel * obs_scales.ang_vel:", (self.base_ang_vel * self.obs_scales.ang_vel).shape)  
@@ -1769,8 +1772,8 @@ class LeggedRobotG1(BaseTask):
         dof_error = torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=1)
         return dof_error
 
-    def _reward_hip_pos(self):
-        return torch.sum(torch.square(self.dof_pos[:, [0,3,6,9]] - self.default_dof_pos[:, [0,3,6,9]]), dim=1)
+    # def _reward_hip_pos(self):
+    #     return torch.sum(torch.square(self.dof_pos[:, [1, 2, 3, 7, 8, 9, 12, 13, 14]] - self.default_dof_pos[:, [1, 2, 3, 7, 8, 9, 12, 13, 14]]), dim=1)
 
     def _reward_delta_torques(self):
         return torch.sum(torch.square(self.torques - self.last_torques), dim=1)
@@ -1854,9 +1857,15 @@ class LeggedRobotG1(BaseTask):
     def _reward_hip_pos(self):
         return torch.sum(torch.square(self.dof_pos[:,[1,2,7,8]]), dim=1)
 
-    def _reward_waist_pos(self):
+    def _reward_waist_pos_dof27(self):
         return torch.sum(torch.square(self.dof_pos[:,12:13]), dim=-1)
+    
+    def _reward_waist_pos_dof29(self):
+        return torch.sum(torch.square(self.dof_pos[:,12:15]), dim=-1)
 
-    def _reward_arm_pos(self):
+    def _reward_arm_pos_dof27(self):
         return torch.sum(torch.square(self.dof_pos[:,[13,14,15,16,17,18,19, 20,21,22,23,24,25,26]] - self.default_dof_pos[:,[13,14,15,16,17,18,19, 20,21,22,23,24,25,26]]), dim=-1)
+    
+    def _reward_arm_pos_dof29(self):
+        return torch.sum(torch.square(self.dof_pos[:,[15,16,17,18,19, 20,21,22,23,24,25,26,27,28]] - self.default_dof_pos[:,[15,16,17,18,19, 20,21,22,23,24,25,26,27,28]]), dim=-1)
      

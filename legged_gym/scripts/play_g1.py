@@ -81,10 +81,10 @@ def play(args):
     env_cfg.domain_rand.damping_multiplier_range = [1.0, 1.0]
 
 
-    # env_cfg.terrain.mesh_type = 'plane'
-    if(env_cfg.terrain.mesh_type == 'plane'):
-        env_cfg.rewards.scales.feet_edge = 0
-        env_cfg.rewards.scales.feet_stumble = 0
+    env_cfg.terrain.mesh_type = 'plane'  # 'plane', 'slope', 'stair', 'gap', 'climb', 'crawl', 'tilt'
+    # if(env_cfg.terrain.mesh_type == 'plane'):
+    #     env_cfg.rewards.scales.feet_edge = 0
+    #     env_cfg.rewards.scales.feet_stumble = 0
 
 
     if(args.terrain not in ['slope', 'stair', 'gap', 'climb', 'crawl', 'tilt']):
@@ -116,11 +116,15 @@ def play(args):
     obs = env.get_observations()
     # load policy
     train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'WMP'
+
+    if env_cfg.env.env_name == 'g1':
+        train_cfg.runner.load_run = 'play'
+    else:
+        train_cfg.runner.load_run = 'play_27dof'
 
 
     train_cfg.runner.checkpoint = -1
-    if env_cfg.env.env_name == 'g1':
+    if 'g1' in env_cfg.env.env_name :
         ppo_runner, train_cfg = task_registry.make_wmp_runner_g1(env=env, name=args.task, args=args, train_cfg=train_cfg)
     else:
         ppo_runner, train_cfg = task_registry.make_wmp_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
@@ -168,10 +172,9 @@ def play(args):
     history_length = 5
     # trajectory_history, obs_without_command indexes modified for G1
     trajectory_history = torch.zeros(size=(env.num_envs, history_length, env.num_obs -
-                                                    env.privileged_dim - env.height_dim - 3),
-                                              device=env.device)
-    obs_without_command = torch.concat((obs[:, :6],
-                                            obs[:, 9: env.num_obs - env.privileged_dim - env.height_dim]), dim=1)
+                                                    env.privileged_dim - env.height_dim - 3), device=env.device)
+    obs_without_command = torch.concat((obs[:, env.privileged_dim:env.privileged_dim + 6],
+                                        obs[:, env.privileged_dim + 9:-env.height_dim]), dim=1)
     
     trajectory_history = torch.concat((trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)
 
@@ -182,7 +185,7 @@ def play(args):
     wm_action_history = torch.zeros(size=(env.num_envs, wm_update_interval, env.num_actions),
                                     device=env.device)
     wm_obs = {
-        "prop": obs[:, :env.cfg.env.prop_dim].to(world_model.device), # modified for G1
+        "prop": obs[:, :env.privileged_dim: env.privileged_dim + env.cfg.env.prop_dim], # modified for G1
         "is_first": wm_is_first,
     }
 
@@ -217,7 +220,7 @@ def play(args):
         wm_action_history = torch.concat(
             (wm_action_history[:, 1:], actions.unsqueeze(1)), dim=1)
         wm_obs = {
-            "prop": obs[:, :env.cfg.env.prop_dim].to(world_model.device), # modified for G1
+            "prop": obs[:, env.privileged_dim: env.privileged_dim + env.cfg.env.prop_dim].to(world_model.device), # modified for G1
             "is_first": wm_is_first,
         }
         if (env.cfg.depth.use_camera):
@@ -235,8 +238,8 @@ def play(args):
         # process trajectory history
         env_ids = dones.nonzero(as_tuple=False).flatten()
         trajectory_history[env_ids] = 0
-        obs_without_command = torch.concat((obs[:, :6], 
-                                            obs[:, 9: env.num_obs - env.privileged_dim - env.height_dim]),
+        obs_without_command = torch.concat((obs[:, env.privileged_dim:env.privileged_dim + 6],
+                                            obs[:, env.privileged_dim + 9:-env.height_dim]),
                                             dim=1)
         trajectory_history = torch.concat(
             (trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)

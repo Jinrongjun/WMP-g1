@@ -146,7 +146,7 @@ class Terrain:
         stone_distance = 0.05 if difficulty == 0 else 0.1
         gap_size = 1. * difficulty
         pit_depth = 0.6 * difficulty
-        tilt_width = 0.32 - 0.04 * difficulty
+        tilt_width = 0.32 - 0.04 * difficulty  # 0.5
         stair_step_width = 0.30 + random.random() * 0.04
         if choice < self.proportions[0]:
             terrain_utils.wave_terrain(terrain, num_waves=5, amplitude=amplitude)
@@ -268,7 +268,7 @@ class Terrain:
             )
 
         elif choice < self.proportions[8]:
-            crawl_height = 0.35 - 0.15 * difficulty
+            crawl_height = 0.35 - 0.15 * difficulty 
             env_origin_x = (i + 0.5) * self.env_length
             env_origin_y = (j + 0.5) * self.env_width
             box_x = 0.2 + 0.2 * np.random.random()
