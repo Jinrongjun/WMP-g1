@@ -5,6 +5,9 @@ Code for the paper:
 [Hang Lai](https://apex.sjtu.edu.cn/members/laihang@apexlab.org), [Jiahang Cao](https://apex.sjtu.edu.cn/members/jhcao@apexlab.org), [JiaFeng Xu](https://scholar.google.com/citations?user=GPmUxtIAAAAJ&hl=zh-CN&oi=ao), [Hongtao Wu](https://scholar.google.com/citations?user=7u0TYgIAAAAJ&hl=zh-CN&oi=ao), [Yunfeng Lin](https://apex.sjtu.edu.cn/members/yflin@apexlab.org), [Tao Kong](https://www.taokong.org/), [Yong Yu](https://scholar.google.com.hk/citations?user=-84M1m0AAAAJ&hl=zh-CN&oi=ao), [Weinan Zhang](https://wnzhang.net/) 
 
 ### [🌐 Project Website](https://wmp-loco.github.io/) | [📄 Paper](https://arxiv.org/abs/2409.16784)
+
+## UPDATE 7.15
+添加了27 / 29 自由度下的AMP功能，并且修复了runner里面维度索引异常的问题。现在可以同时兼容27/29 dof下的模型训练。
    
 ## Requirements
 1. Create a new python virtual env with python 3.6, 3.7 or 3.8 (3.8 recommended)
