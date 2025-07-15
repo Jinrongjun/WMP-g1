@@ -160,7 +160,7 @@ class AMPPPO:
         not_done_idxs = (dones == False).nonzero().squeeze()
         if self.use_amp:
             self.amp_storage.insert(
-                self.amp_transition.observations, amp_obs)
+                self.amp_transition.observations, amp_obs)  # state and next_state
 
         # Record the transition
         self.storage.add_transitions(self.transition)

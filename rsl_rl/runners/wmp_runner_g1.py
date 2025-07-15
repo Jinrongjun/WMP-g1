@@ -44,11 +44,13 @@ from rsl_rl.algorithms import AMPPPO, PPO
 from rsl_rl.modules import ActorCritic, ActorCriticWMP, ActorCriticRecurrent
 from rsl_rl.env import VecEnv
 from rsl_rl.algorithms.amp_discriminator import AMPDiscriminator
-from rsl_rl.datasets.g1_motion_loader import AMPLoader  # modified for G1
+from rsl_rl.datasets.g1_motion_loader import AMPLoader_g1  # modified for G1
+from rsl_rl.datasets.motion_loader import AMPLoader  # modified for G1
 from rsl_rl.utils.utils import Normalizer
 from rsl_rl.modules import DepthPredictor
 import torch.optim as optim
-
+from legged_gym import LEGGED_GYM_ROOT_DIR
+from legged_gym.utils.helpers import get_load_path
 from dreamer.models import *
 import ruamel.yaml as yaml
 import argparse
@@ -107,11 +109,17 @@ class WMPRunnerG1:
 
         # initialize AMP if usable:
         self.use_amp = False
+        selected_joint_indices=list(range(29))
+        if self.env.cfg.env.env_name == "g1_27dof":  # delete used joints for G1 27dof
+            selected_joint_indices=list(range(29))
+            selected_joint_indices.pop(15)
+            selected_joint_indices.pop(14)
         if self.env.cfg.env.use_amp == True:
-            amp_data = AMPLoader(
+            amp_data = AMPLoader_g1(
                 device, time_between_frames=self.env.dt, preload_transitions=True,
                 num_preload_transitions=train_cfg['runner']['amp_num_preload_transitions'],
-                motion_files=self.cfg["amp_motion_files"])
+                motion_files=self.cfg["amp_motion_files"], selected_joint_indices=selected_joint_indices)
+            print("AMP_obs_dim:",amp_data.observation_dim)
             amp_normalizer = Normalizer(amp_data.observation_dim)
             discriminator = AMPDiscriminator(
                 amp_data.observation_dim * 2,
@@ -151,6 +159,13 @@ class WMPRunnerG1:
 
         _, _ = self.env.reset()
 
+        if self.cfg["resume"] == True:
+            log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', self.cfg['experiment_name'])
+            resume_path = get_load_path(log_root, load_run=self.cfg['load_run'], checkpoint= self.cfg['checkpoint']) #"/home/jinrongjun/g1-ppo-symm-main/legged_gym/logs/G1_PPO_EMLP/play/model_4300.pt" 
+            print(f"Loading model from: {resume_path}")
+            self.load(resume_path)
+        self.current_learning_iteration = 0
+
 
     def _build_world_model(self):
         # world model
@@ -158,6 +173,10 @@ class WMPRunnerG1:
         if self.env.cfg.env.env_name == "g1":
             configs = yaml.safe_load(
                 (pathlib.Path(sys.argv[0]).parent.parent.parent / "dreamer/configs_g1.yaml").read_text()
+            )
+        elif self.env.cfg.env.env_name == "g1_27dof":
+            configs = yaml.safe_load(
+                (pathlib.Path(sys.argv[0]).parent.parent.parent / "dreamer/configs_g1_dof27.yaml").read_text()
             )
         else:
             configs = yaml.safe_load(
@@ -229,8 +248,8 @@ class WMPRunnerG1:
         self.trajectory_history = torch.zeros(size=(self.env.num_envs, self.history_length, self.env.num_obs -
                                                     self.env.privileged_dim - self.env.height_dim - 3),
                                               device=self.device)
-        obs_without_command = torch.concat((obs[:, :6],
-                                            obs[:, 9: self.env.num_obs - self.env.privileged_dim - self.env.height_dim]), dim=1)
+        obs_without_command = torch.concat((obs[:, self.env.privileged_dim:self.env.privileged_dim + 6],
+                                            obs[:, self.env.privileged_dim + 9:-self.env.height_dim]), dim=1)
         # print("shapes:",self.trajectory_history[:, 1:].shape, obs_without_command.unsqueeze(1).shape)
         self.trajectory_history = torch.concat((self.trajectory_history[:, 1:], obs_without_command.unsqueeze(1)),
                                                dim=1)
@@ -240,7 +259,7 @@ class WMPRunnerG1:
         wm_latent = wm_action = None
         wm_is_first = torch.ones(self.env.num_envs, device=self._world_model.device)
         wm_obs = {
-            "prop": obs[:, :self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
+            "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
             "is_first": wm_is_first,
         }
 
@@ -286,7 +305,7 @@ class WMPRunnerG1:
                     wm_action_history = torch.concat(
                         (wm_action_history[:, 1:], actions.unsqueeze(1).to(self._world_model.device)), dim=1)
                     wm_obs = {
-                        "prop": obs[:, :self.env.cfg.env.prop_dim].to(self._world_model.device), #Modified for G1
+                        "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device), #Modified for G1
                         "is_first": wm_is_first,
                     }
 
@@ -353,8 +372,8 @@ class WMPRunnerG1:
                     # process trajectory history
                     env_ids = dones.nonzero(as_tuple=False).flatten()
                     self.trajectory_history[env_ids] = 0
-                    obs_without_command = torch.concat((obs[:, :6], 
-                                                        obs[:, 9: self.env.num_obs -self.env.privileged_dim - self.env.height_dim]),
+                    obs_without_command = torch.concat((obs[:, self.env.privileged_dim:self.env.privileged_dim + 6],
+                                                        obs[:, self.env.privileged_dim + 9:-self.env.height_dim]),
                                                         dim=1)
                     self.trajectory_history = torch.concat(
                         (self.trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)
@@ -406,10 +425,7 @@ class WMPRunnerG1:
 
             # copy the config file
             if(it == 0):
-                if self.use_amp:
-                    os.system(f"cp ./legged_gym/envs/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}_amp_config.py " + self.log_dir + "/")
-                else:
-                    os.system(f"cp ./legged_gym/envs/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}_config.py " + self.log_dir + "/")
+                os.system(f"cp ./legged_gym/envs/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}/{self.env.cfg.env.env_name}_config.py " + self.log_dir + "/")
 
 
         self.current_learning_iteration += num_learning_iterations
@@ -455,7 +471,7 @@ class WMPRunnerG1:
             self.wm_buffer["forward_height_map"] = torch.zeros(
                 (self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                  self.env.cfg.env.forward_height_dim), device='cpu')
-        print("111")
+        # print("111")
         self.wm_buffer_index = np.zeros(self.env.num_envs)
 
     def train_depth_predictor(self):
@@ -623,7 +639,7 @@ class WMPRunnerG1:
             'infos': infos,
         }, path)
 
-    def load(self, path, load_optimizer=True, load_wm_optimizer = False):
+    def load(self, path, load_optimizer=True, load_wm_optimizer = True):
         loaded_dict = torch.load(path, map_location=self.device)
         self.alg.actor_critic.load_state_dict(loaded_dict['model_state_dict'], strict=False)
         self._world_model.load_state_dict(loaded_dict['world_model_dict'], strict=False)

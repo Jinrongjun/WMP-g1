@@ -12,7 +12,7 @@ from rsl_rl.datasets import pose3d
 from rsl_rl.datasets import motion_util
 
 
-class AMPLoader:
+class AMPLoader_g1:
 
     def set_data_index(self):
         """Set data index for the motion data."""
@@ -217,7 +217,9 @@ class AMPLoader:
                 # Store full trajectory data with velocities
                 # Create an extended motion data array that includes original data and computed velocities
                 extended_motion_data = np.zeros((motion_data.shape[0], motion_data.shape[1] + self.LINEAR_VEL_SIZE + self.ANGULAR_VEL_SIZE + self.JOINT_VEL_SIZE))
+                # print("COM",motion_data.shape[1], self.LINEAR_VEL_SIZE, self.ANGULAR_VEL_SIZE, self.JOINT_VEL_SIZE)
                 print(f"extended_motion_data shape: {extended_motion_data.shape}")
+                # print("self.JOINT_POS_START_IDX : ", self.JOINT_POS_START_IDX)
                 extended_motion_data[:, :motion_data.shape[1]] = motion_data  # Original data
                 # Fill in the rest of the extended motion data
                 
@@ -560,6 +562,7 @@ class AMPLoader:
                 
                 # Get only the joint positions for the state
                 s = self.preloaded_s[idxs, self.JOINT_POS_START_IDX:]
+                # print("s shape:", s.shape)
                 # print("IDX:", self.JOINT_POS_START_IDX)
                 
                 # Add root height (Z coordinate)
