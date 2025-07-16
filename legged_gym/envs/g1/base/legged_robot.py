@@ -463,9 +463,9 @@ class LeggedRobotG1(BaseTask):
                                     self.commands[:, :3] * self.commands_scale, #3
                                     (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos, #29
                                     self.dof_vel * self.obs_scales.dof_vel, #29
-                                    self.actions, #29
                                     sin_phase, #1
                                     cos_phase, #1
+                                    self.actions, #29
                                     ),dim=-1)
 
         if (self.cfg.env.privileged_obs):

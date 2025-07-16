@@ -46,7 +46,7 @@ class G1Cfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
         num_envs = 4096
         include_history_steps = None  # Number of steps of history to include.
-        prop_dim = 69 # proprioception, 3*base_ang_vel  + 3*gravity + 3*command + 29*dof_pos + 29*dof_vel + 2*phase
+        prop_dim = 69 + 29 # proprioception, 3*base_ang_vel  + 3*gravity + 3*command + 29*dof_pos + 29*dof_vel +29*last_action + 2*phase
         action_dim = 29 # num_dof
         num_actions = 29
         privileged_dim = 13 + 3  # (removed)29*kp + 29*kd  + 13*contact_flag(number of joints included in penalize_contacts_on) + (removed for early training)6*DR_param + 3*base_lin_vel privileged_obs[:,:privileged_dim] is the privileged information in privileged_obs, include 3-dim base linear vel
@@ -56,8 +56,8 @@ class G1Cfg(LeggedRobotCfg):
         env_name = 'g1'
         use_amp = False
         forward_height_dim = 525 # for depth image prediction
-        num_observations = prop_dim + privileged_dim + height_dim + action_dim - 3
-        num_privileged_obs = prop_dim + privileged_dim + height_dim + action_dim
+        num_observations = prop_dim + privileged_dim + height_dim 
+        num_privileged_obs = prop_dim + privileged_dim + height_dim 
         reference_state_initialization = False
         reference_state_initialization_prob = 0.85
         amp_motion_files = MOTION_FILES
@@ -400,7 +400,7 @@ class G1Cfg(LeggedRobotCfg):
 
 
 class G1CfgPPO(LeggedRobotCfgPPO):
-    runner_class_name = 'WMPRunner'
+    runner_class_name = 'WMPRunnerG1'
 
     class policy:
         init_noise_std = 1.0
@@ -440,6 +440,58 @@ class G1CfgPPO(LeggedRobotCfgPPO):
         min_normalized_std = [0, 0, 0] * 9  + [0, 0]     # TODO: which value? [0.05, 0.02, 0.05] * 4
 
         resume = True
+        load_run = "play"
+        checkpoint = 3000
+
+    class depth_predictor:
+        lr = 3e-4
+        weight_decay = 1e-4
+        training_interval = 10
+        training_iters = 1000
+        batch_size = 1024
+        loss_scale = 100
+
+class G1CfgDKPPO(LeggedRobotCfgPPO):
+    runner_class_name = 'WMPDKRunnerG1'
+
+    class policy:
+        init_noise_std = 1.0
+        encoder_hidden_dims = [256, 128]
+        wm_encoder_hidden_dims = [64, 64]
+        actor_hidden_dims = [512, 256, 128]
+        critic_hidden_dims = [512, 256, 128]
+        latent_dim = 32 + 3
+        wm_latent_dim = 32
+        activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        # only for 'ActorCriticRecurrent':
+        # rnn_type = 'lstm'
+        # rnn_hidden_size = 512
+        # rnn_num_layers = 1
+
+    class algorithm(LeggedRobotCfgPPO.algorithm):
+        entropy_coef = 0.01
+        vel_predict_coef = 1.0
+        amp_replay_buffer_size = 1000000
+        num_learning_epochs = 5
+        num_mini_batches = 4
+
+    class runner(LeggedRobotCfgPPO.runner):
+        run_name = 'flat_push1'
+        experiment_name = 'g1_DK'
+        algorithm_class_name = 'AMPDKPPO'
+        policy_class_name = 'ActorCritic'
+        max_iterations = 20000  # number of policy updates
+        save_interval = 1000
+
+        amp_reward_coef = 0.5 * 0.02  # set to 0 means not use amp reward
+        amp_motion_files = MOTION_FILES
+        amp_num_preload_transitions = 2000000
+        amp_task_reward_lerp = 0.3
+        amp_discr_hidden_dims = [1024, 512]
+
+        min_normalized_std = [0, 0, 0] * 9  + [0, 0]     # TODO: which value? [0.05, 0.02, 0.05] * 4
+
+        resume = False
         load_run = "play"
         checkpoint = 3000
 
