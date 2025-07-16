@@ -6,6 +6,11 @@ Code for the paper:
 
 ### [🌐 Project Website](https://wmp-loco.github.io/) | [📄 Paper](https://arxiv.org/abs/2409.16784)
 
+
+
+## UPDATE 7.16
+添加了g1_DK任务，把DK模块接到actor前面做当前状态压缩。
+
 ## UPDATE 7.15
 添加了27 / 29 自由度下的AMP功能，并且修复了runner里面维度索引异常的问题。现在可以同时兼容27/29 dof下的模型训练。
    
