@@ -75,6 +75,7 @@ class RolloutStorage:
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
 
+        # print("num_transitions_per_env, num_envs, history_dim", num_transitions_per_env, num_envs, history_dim)
         self.history = torch.zeros(num_transitions_per_env, num_envs, history_dim, device=self.device)
         self.wm_features = torch.zeros(num_transitions_per_env, num_envs, wm_feature_dim, device=self.device)
 

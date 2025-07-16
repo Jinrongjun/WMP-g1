@@ -32,3 +32,4 @@ from .actor_critic import ActorCritic
 from .actor_critic_wmp import ActorCriticWMP
 from .actor_critic_recurrent import ActorCriticRecurrent
 from .depth_predictor import DepthPredictor
+from .actor_critic_DKwmp import ActorCriticDKWMP

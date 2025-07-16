@@ -34,3 +34,4 @@
 from .on_policy_runner import OnPolicyRunner
 from .wmp_runner import WMPRunner
 from .wmp_runner_g1 import WMPRunnerG1
+from .wmp_runner_DK import WMPDKRunnerG1
