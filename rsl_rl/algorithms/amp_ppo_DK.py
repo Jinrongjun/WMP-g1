@@ -290,19 +290,26 @@ class AMPDKPPO:
                     self.entropy_coef * entropy_batch.mean() +
                     amp_loss + grad_pen_loss)
 
-            # Gradient step
-            self.optimizer.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-            self.optimizer.step()
-
+            # update DK before AC
             # Deepkoopman gradient step
+            for param in self.actor_critic.deep_koopman.parameters():
+                param.requires_grad = True  # 开放所有参数
             self.DK_optimizer.zero_grad()
             DK_total_loss.backward()
             nn.utils.clip_grad_norm_(
                     self.actor_critic.deep_koopman.parameters(),
                     self.max_grad_norm,)
             self.DK_optimizer.step()
+            for param in self.actor_critic.deep_koopman.parameters():
+                param.requires_grad = False  # 冻结所有参数
+
+            # Gradient step
+            self.optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
+            self.optimizer.step()
+
+
 
 
             if not self.actor_critic.fixed_std and self.min_std is not None:

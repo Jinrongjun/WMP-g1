@@ -94,7 +94,7 @@ class WMPDKRunnerG1:
         self._build_world_model()
 
         # build depth predictor
-        self.depth_predictor = DepthPredictor(prop_dim = self.env.cfg.env.prop_dim ).to(self._world_model.device)
+        self.depth_predictor = DepthPredictor(prop_dim = 12 ).to(self._world_model.device)  #  DepthPredictor(prop_dim = self.env.cfg.env.prop_dim ).to(self._world_model.device)
         self.depth_predictor_opt = optim.Adam(self.depth_predictor.parameters(), lr=self.depth_predictor_cfg["lr"],
                                               weight_decay=self.depth_predictor_cfg["weight_decay"])
 
@@ -215,7 +215,12 @@ class WMPDKRunnerG1:
         self.wm_config.num_actions = self.wm_config.num_actions * self.env.cfg.depth.update_interval
         prop_dim = self.env.cfg.env.prop_dim # modified for G1
         image_shape = self.env.cfg.depth.resized + (1,)
-        obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
+
+        # Partial prop
+        # obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
+
+        # Full prop
+        obs_shape = {'prop': (12,), 'image': image_shape,}
         self._world_model = WorldModel(self.wm_config, obs_shape, use_camera=True) # Always set as True for G1, use depth_camera or height maps
         self._world_model = self._world_model.to(self._world_model.device)
         print('Finish construct world model')
@@ -251,8 +256,8 @@ class WMPDKRunnerG1:
         self.trajectory_history = torch.zeros(size=(self.env.num_envs, self.history_length, self.env.num_obs -
                                                     self.env.privileged_dim - self.env.height_dim - 3),
                                               device=self.device)
-        obs_without_command = torch.concat((obs[:, :6],
-                                            obs[:, 9: self.env.num_obs - self.env.privileged_dim - self.env.height_dim]), dim=1)
+        obs_without_command = torch.concat((obs[:, self.env.privileged_dim:self.env.privileged_dim + 6],
+                                            obs[:, self.env.privileged_dim + 9:  - self.env.height_dim]), dim=1)
         # print("shapes:",self.trajectory_history[:, 1:].shape, obs_without_command.unsqueeze(1).shape)
         self.trajectory_history = torch.concat((self.trajectory_history[:, 1:], obs_without_command.unsqueeze(1)),
                                                dim=1)
@@ -262,7 +267,11 @@ class WMPDKRunnerG1:
         wm_latent = wm_action = None
         wm_is_first = torch.ones(self.env.num_envs, device=self._world_model.device)
         wm_obs = {
-            "prop": obs[:, :self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
+            # Modified PROP : 3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity
+            "prop": obs[:, self.env.privileged_dim-3: self.env.privileged_dim + 9].to(self._world_model.device),  #Modified for G1 
+            
+            # # FULL PROP w/o base lin vel
+            # "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
             "is_first": wm_is_first,
         }
 
@@ -309,9 +318,13 @@ class WMPDKRunnerG1:
                     wm_action_history = torch.concat(
                         (wm_action_history[:, 1:], actions.unsqueeze(1).to(self._world_model.device)), dim=1)
                     wm_obs = {
-                        "prop": obs[:, :self.env.cfg.env.prop_dim].to(self._world_model.device), #Modified for G1
-                        "is_first": wm_is_first,
-                    }
+                            # Modified PROP : 3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity
+                            "prop": obs[:, self.env.privileged_dim-3: self.env.privileged_dim + 9].to(self._world_model.device),  #Modified for G1 
+                            
+                            # # FULL PROP w/o base lin vel
+                            # "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
+                            "is_first": wm_is_first,
+                             }
 
                     # store the data in buffer into the dataset before reset
                     reset_env_ids = reset_env_ids.cpu().numpy()
@@ -376,8 +389,8 @@ class WMPDKRunnerG1:
                     # process trajectory history
                     env_ids = dones.nonzero(as_tuple=False).flatten()
                     self.trajectory_history[env_ids] = 0
-                    obs_without_command = torch.concat((obs[:, :6], 
-                                                        obs[:, 9: self.env.num_obs -self.env.privileged_dim - self.env.height_dim]),
+                    obs_without_command = torch.concat((obs[:, self.env.privileged_dim:self.env.privileged_dim + 6],
+                                                        obs[:, self.env.privileged_dim + 9:-self.env.height_dim]),
                                                         dim=1)
                     self.trajectory_history = torch.concat(
                         (self.trajectory_history[:, 1:], obs_without_command.unsqueeze(1)), dim=1)
@@ -437,8 +450,12 @@ class WMPDKRunnerG1:
 
     def init_wm_dataset(self):
         self.wm_dataset = {
-            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+            # Partial prop
+            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, 12),
                                 device=self._world_model.device),
+            # Full prop
+            # "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+            #                     device=self._world_model.device),
             "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                                    self.env.num_actions * self.wm_update_interval), device=self._world_model.device),
             "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
@@ -458,8 +475,12 @@ class WMPDKRunnerG1:
         self.wm_dataset_size = np.zeros(self.env.num_envs)
 
         self.wm_buffer = {
-            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+            # Partial prop
+            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, 12),
                                 device='cpu'),
+            # FULL prop
+            # "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+            #                     device='cpu'),
             "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                                    self.env.num_actions * self.wm_update_interval), device='cpu'),
             "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),

@@ -80,12 +80,14 @@ class ActorCriticDKWMP(nn.Module):
         self.dk_latent_dim = dk_latent_dim
         self.prop_dim = prop_dim
 
-        mlp_input_dim_a = latent_dim + 3 + wm_latent_dim + dk_latent_dim #latent vector + command + wm_latent
+        mlp_input_dim_a = latent_dim + 3 + wm_latent_dim #+ dk_latent_dim #latent vector + command + wm_latent
         mlp_input_dim_c = num_critic_obs + wm_latent_dim   # TODO: crtic要不要加上dk latent
 
         # History Encoder
+
+        # Koopman Compression Version
         encoder_layers = []
-        encoder_layers.append(nn.Linear(history_dim, encoder_hidden_dims[0]))
+        encoder_layers.append(nn.Linear(dk_latent_dim * num_history, encoder_hidden_dims[0]))
         encoder_layers.append(activation)
         for l in range(len(encoder_hidden_dims)):
             if l == len(encoder_hidden_dims) - 1:
@@ -94,6 +96,21 @@ class ActorCriticDKWMP(nn.Module):
                 encoder_layers.append(nn.Linear(encoder_hidden_dims[l], encoder_hidden_dims[l + 1]))
                 encoder_layers.append(activation)
         self.history_encoder = nn.Sequential(*encoder_layers)
+
+        # Autoencoder version
+        # encoder_layers = []
+        # encoder_layers.append(nn.Linear(history_dim, encoder_hidden_dims[0]))
+        # encoder_layers.append(activation)
+        # for l in range(len(encoder_hidden_dims)):
+        #     if l == len(encoder_hidden_dims) - 1:
+        #         encoder_layers.append(nn.Linear(encoder_hidden_dims[l], latent_dim))
+        #     else:
+        #         encoder_layers.append(nn.Linear(encoder_hidden_dims[l], encoder_hidden_dims[l + 1]))
+        #         encoder_layers.append(activation)
+        # self.history_encoder = nn.Sequential(*encoder_layers)
+
+
+
 
         # World Model Feature Encoder
         wm_encoder_layers = []
@@ -202,23 +219,34 @@ class ActorCriticDKWMP(nn.Module):
     # act with KOOPMAN
     def act(self, observations, history, wm_feature, **kwargs):
         # 直接从observation中获取当前prop
-        latent_vector = self.history_encoder(history)
+        # latent_vector = self.history_encoder(history)
+        # command = observations[:, self.privileged_dim + 6:self.privileged_dim + 9]
+        # obs_without_command = torch.concat((observations[:, self.privileged_dim:self.privileged_dim + 6], observations[:, self.privileged_dim + 9:self.privileged_dim + self.prop_dim]),
+        #                                    dim=-1)
+        # dk_latent= self.deep_koopman.encode(obs_without_command)
+        # wm_latent_vector = self.wm_feature_encoder(wm_feature)
+        # concat_observations = torch.concat((latent_vector, command, wm_latent_vector, dk_latent),
+        #                                    dim=-1)
+        # Deep koopman encode
+
+        DK_embeded_history = self.deep_koopman.history_encode(history)
+        latent_vector = self.history_encoder(DK_embeded_history)
         command = observations[:, self.privileged_dim + 6:self.privileged_dim + 9]
-        obs_without_command = torch.concat((observations[:, self.privileged_dim:self.privileged_dim + 6], observations[:, self.privileged_dim + 9:self.privileged_dim + self.prop_dim]),
-                                           dim=-1)
-        dk_latent= self.deep_koopman.encode(obs_without_command)
+
         wm_latent_vector = self.wm_feature_encoder(wm_feature)
-        concat_observations = torch.concat((latent_vector, command, wm_latent_vector, dk_latent),
+        concat_observations = torch.concat((latent_vector, command, wm_latent_vector),
                                            dim=-1)
         self.update_distribution(concat_observations)
         return self.distribution.sample()
 
     def get_latent_vector(self, observations, history, **kwargs):
-        latent_vector = self.history_encoder(history)
+        DK_embeded_history = self.deep_koopman.history_encode(history)
+        latent_vector = self.history_encoder(DK_embeded_history)
         return latent_vector
 
     def get_linear_vel(self, observations, history, **kwargs):
-        latent_vector = self.history_encoder(history)
+        DK_embeded_history = self.deep_koopman.history_encode(history)
+        latent_vector = self.history_encoder(DK_embeded_history)
         linear_vel = latent_vector[:,-3:]
         return linear_vel
 
@@ -226,7 +254,8 @@ class ActorCriticDKWMP(nn.Module):
         return self.distribution.log_prob(actions).sum(dim=-1)
 
     def act_inference(self, observations, history, wm_feature):
-        latent_vector = self.history_encoder(history)
+        DK_embeded_history = self.deep_koopman.history_encode(history)
+        latent_vector = self.history_encoder(DK_embeded_history)
         command = observations[:, self.privileged_dim + 6:self.privileged_dim + 9]
         dk_latent= self.deep_koopman.encode(observations[self.privileged_dim:self.privileged_dim + self.prop_dim])
         wm_latent_vector = self.wm_feature_encoder(wm_feature)

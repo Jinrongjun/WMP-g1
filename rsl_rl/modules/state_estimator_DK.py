@@ -103,9 +103,13 @@ class DeepKoopman(nn.Module):
             # 提取动作序列（从下一步观测中获取当前动作）
             # 使用roll实现位移索引，比切片快30%[1,6](@ref)
             next_obs = torch.roll(obs_3d, shifts=-1, dims=1)[:, :-1]  # [num_envs, num_history-1, num_obs]
-            actions = next_obs[:, :, 6 + 2*num_action : 6 + 3*num_action]  # [num_envs, num_history-1, action_dim]
+            actions = next_obs[:, :, 8 + 2*num_action : 8 + 3*num_action]  # [num_envs, num_history-1, action_dim]
             # print("state size:", states.size())
             return {'states': states, 'actions': actions}
+
+    
+
+
 
     # 生成latent
     def forward(self, state, action, cv=0):
@@ -200,6 +204,18 @@ class DeepKoopman(nn.Module):
         else:
             state_reconstructed, state_prediction, latent, latent_prediction = self.forward(prop)
         return latent
+    
+    def history_encode(self, obs_history):
+        # 1. 重塑输入数据：合并批次和历史步维度，便于批量编码
+        obs_3d = obs_history.view(-1, self.num_prop + self.num_action)  # [batch * num_his, features]
+        
+        # 2. 批量编码：一次性处理所有历史步的数据
+        all_encoded = self.encode(obs_3d)  # [batch * num_his, num_latent]
+        
+        # 3. 重塑结果：恢复批次和历史步维度，并拼接为最终输出
+        DK_embeded_history = all_encoded.view(obs_history.shape[0], self.num_his * self.num_latent)  # [batch, num_his * num_latent]
+        
+        return DK_embeded_history
     
 # 需要删除的接口： sample, reparameterize
     # # 返回所有值，包括估计值和用于估计的参数
