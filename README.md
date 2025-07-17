@@ -6,7 +6,8 @@ Code for the paper:
 
 ### [🌐 Project Website](https://wmp-loco.github.io/) | [📄 Paper](https://arxiv.org/abs/2409.16784)
 
-
+## UPDATE 7.17
+修复runner_DK的索引问题；修改history encoder；g1_config下网络大小对应调整；wm的prop修改成12维（3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity）
 
 ## UPDATE 7.16
 添加了g1_DK任务，把DK模块接到actor前面做当前状态压缩。
