@@ -35,7 +35,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from rsl_rl.modules import ActorCriticDKWMP
+from rsl_rl.modules import ActorCriticWMP
 from rsl_rl.storage import RolloutStorage
 from rsl_rl.storage.replay_buffer import ReplayBuffer
 
@@ -45,9 +45,8 @@ from escnn.group import CyclicGroup
 from rsl_rl.utils.symm_utils import add_repr_to_gspace, SimpleEMLP, get_symm_tensor, G, representations_action, representations, representations_commands, representations_wm_feature
 
 
-
-class AMPDKPPO:
-    actor_critic: ActorCriticDKWMP
+class AMPPPO:
+    actor_critic: ActorCriticWMP
 
     def __init__(self,
                  actor_critic,
@@ -71,12 +70,13 @@ class AMPDKPPO:
                  amp_replay_buffer_size=100000,
                  min_std=None,
                  use_amp = False,
-                 sym_coef = 1.0,
+                 sym_coef = 5.0,
                  amp_coef = 1.0
                  ):
-
+        
         self.sym_coef = sym_coef
         self.amp_coef = amp_coef
+
         self.device = device
 
         self.desired_kl = desired_kl
@@ -84,7 +84,6 @@ class AMPDKPPO:
         self.learning_rate = learning_rate
         self.min_std = min_std
         self.use_amp = use_amp
-
         # Discriminator components
         if use_amp:
             self.discriminator = discriminator
@@ -113,11 +112,6 @@ class AMPDKPPO:
                 {'params': self.actor_critic.parameters(), 'name': 'actor_critic'},
                      ]
         self.optimizer = optim.Adam(params, lr=learning_rate)
-        # 初始化DK优化器
-        self. DK_optimizer = optim.Adam(
-            self.actor_critic.deep_koopman.parameters(),
-            lr=learning_rate
-        )
         self.transition = RolloutStorage.Transition()
 
         # PPO parameters
@@ -242,8 +236,7 @@ class AMPDKPPO:
                 aug_obs_batch[:, self.actor_critic.privileged_dim + 9:]
             ], dim=-1)
             # 翻转 wm_feature ？需要在图像未编码前翻转，较为麻烦，除非从一开始就把所有图像翻转过一遍GRU
-            actions_symmetry =  self.actor_critic.act(aug_obs_batch, obs_history_batch_symmetry, wm_feature_batch, masks=masks_batch,
-                                  hidden_states=hid_states_batch[0])
+            actions_symmetry =  self.actor_critic.act(aug_obs_batch_symmetry, obs_history_batch_symmetry, wm_feature_batch)
             actions_symmetry_rerversed = get_symm_tensor(actions_symmetry, G, representations_action)
             mu_batch = self.actor_critic.action_mean
             sym_loss = (mu_batch - actions_symmetry_rerversed).pow(2).mean()
@@ -307,13 +300,9 @@ class AMPDKPPO:
             amp_loss = 0.5 * (expert_loss + policy_loss)
             grad_pen_loss = self.discriminator.compute_grad_pen(
                 *sample_amp_expert, lambda_=10)
-            
-            # Deepkoopman loss
-            DK_total_loss = self.actor_critic.deep_koopman.loss_fn(history_batch)["total_loss"]
 
             # Compute total loss.
-            loss = (
-                    self.sym_coef * sym_loss +
+            loss = (self.sym_coef * sym_loss +
                     surrogate_loss +
                     self.vel_predict_coef * vel_predict_loss +
                     self.value_loss_coef * value_loss -
@@ -321,27 +310,11 @@ class AMPDKPPO:
                     self.amp_coef * amp_loss + 
                     grad_pen_loss)
 
-            # update DK before AC
-            # Deepkoopman gradient step
-            for param in self.actor_critic.deep_koopman.parameters():
-                param.requires_grad = True  # 开放所有参数
-            self.DK_optimizer.zero_grad()
-            DK_total_loss.backward()
-            nn.utils.clip_grad_norm_(
-                    self.actor_critic.deep_koopman.parameters(),
-                    self.max_grad_norm,)
-            self.DK_optimizer.step()
-            for param in self.actor_critic.deep_koopman.parameters():
-                param.requires_grad = False  # 冻结所有参数
-
             # Gradient step
             self.optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
             self.optimizer.step()
-
-
-
 
             if not self.actor_critic.fixed_std and self.min_std is not None:
                 self.actor_critic.std.data = self.actor_critic.std.data.clamp(min=self.min_std)
@@ -359,8 +332,6 @@ class AMPDKPPO:
             mean_expert_pred += expert_d.mean().item()
             mean_vel_predict_loss += vel_predict_loss.mean().item()
 
-            mean_DK_loss = DK_total_loss.item()
-
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_sym_loss /= num_updates
         mean_value_loss /= num_updates
@@ -370,12 +341,9 @@ class AMPDKPPO:
         mean_policy_pred /= num_updates
         mean_expert_pred /= num_updates
         mean_vel_predict_loss /= num_updates
-        mean_DK_loss /= num_updates
-
-        print("mean_DK_loss:", mean_DK_loss)
         self.storage.clear()
 
-        return mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss
+        return mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred
     
     def update(self):
         mean_sym_loss = 0
@@ -409,11 +377,10 @@ class AMPDKPPO:
             mu_batch = self.actor_critic.action_mean
             sigma_batch = self.actor_critic.action_std
             entropy_batch = self.actor_critic.entropy
-            
+
             ## For symloss
             obs_history_batch_symmetry = get_symm_tensor(history_batch, G, representations)
-            actions_symmetry =  self.actor_critic.act(aug_obs_batch, obs_history_batch_symmetry, wm_feature_batch, masks=masks_batch,
-                                  hidden_states=hid_states_batch[0])
+            actions_symmetry =  self.actor_critic.act(None, obs_history_batch_symmetry)
             actions_symmetry_rerversed = get_symm_tensor(actions_symmetry, G, representations_action)
             mu_batch = self.actor_critic.action_mean
             sym_loss = (mu_batch - actions_symmetry_rerversed).pow(2).mean()
@@ -458,35 +425,20 @@ class AMPDKPPO:
                                 self.actor_critic.privileged_dim - 3: self.actor_critic.privileged_dim]
             vel_predict_loss = (predicted_linear_vel - target_linear_vel).pow(2).mean()
 
-
-            # Deepkoopman loss
-            DK_total_loss = self.actor_critic.deep_koopman.loss_fn(history_batch)["total_loss"]
-
-
-
             # Compute total loss.
-            loss = (
-                    self.sym_coef * sym_loss +
+            loss = (self.sym_coef * sym_loss +
                     surrogate_loss +
                     self.vel_predict_coef * vel_predict_loss +
                     self.value_loss_coef * value_loss -
                     self.entropy_coef * entropy_batch.mean() +
                     self.amp_coef * amp_loss + 
-                    grad_pen_loss)  
+                    grad_pen_loss)
 
             # Gradient step
             self.optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
             self.optimizer.step()
-
-            # Deepkoopman gradient step
-            self.DK_optimizer.zero_grad()
-            DK_total_loss.backward()
-            nn.utils.clip_grad_norm_(
-                    self.actor_critic.deep_koopman.parameters(),
-                    self.max_grad_norm,)
-            self.DK_optimizer.step()
 
             if not self.actor_critic.fixed_std and self.min_std is not None:
                 self.actor_critic.std.data = self.actor_critic.std.data.clamp(min=self.min_std)
@@ -498,8 +450,6 @@ class AMPDKPPO:
             mean_grad_pen_loss += grad_pen_loss
             mean_vel_predict_loss += vel_predict_loss.mean().item()
 
-            mean_DK_loss = DK_total_loss.item()
-
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_sym_loss /= num_updates
         mean_value_loss /= num_updates
@@ -509,10 +459,7 @@ class AMPDKPPO:
         mean_policy_pred /= num_updates
         mean_expert_pred /= num_updates
         mean_vel_predict_loss /= num_updates
-        mean_DK_loss /= num_updates
-
-        print("mean_DK_loss:", mean_DK_loss)
         self.storage.clear()
 
-        return mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss
+        return mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred
 

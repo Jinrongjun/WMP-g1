@@ -62,7 +62,6 @@ import datetime
 import uuid
 class WMPDKRunnerG1:
 
-    # TODO: 删除WM的prop部分
     def __init__(self,
                  env: VecEnv,
                  train_cfg,
@@ -89,12 +88,16 @@ class WMPDKRunnerG1:
             num_actor_obs = self.env.num_obs
 
 
-
+        print(train_cfg["runner"])
         # build world model
+        self.wm_access_prop = train_cfg["runner"]["wm_access_prop"]
         self._build_world_model()
 
         # build depth predictor
-        self.depth_predictor = DepthPredictor(prop_dim = 12 ).to(self._world_model.device)  #  DepthPredictor(prop_dim = self.env.cfg.env.prop_dim ).to(self._world_model.device)
+        if self.wm_access_prop:
+            self.depth_predictor = DepthPredictor(prop_dim = self.env.cfg.env.prop_dim ).to(self._world_model.device)
+        else:
+            self.depth_predictor = DepthPredictor(prop_dim = 12 ).to(self._world_model.device)  
         self.depth_predictor_opt = optim.Adam(self.depth_predictor.parameters(), lr=self.depth_predictor_cfg["lr"],
                                               weight_decay=self.depth_predictor_cfg["weight_decay"])
 
@@ -107,7 +110,7 @@ class WMPDKRunnerG1:
                                           history_dim=self.history_dim,
                                           wm_feature_dim=self.wm_feature_dim,
                                           prop_dim=self.env.cfg.env.prop_dim,  # modified for G1
-                                          num_history=history_length,
+                                          num_history=history_length, dk_device=self.device,
                                           **self.policy_cfg).to(self.device)
 
         # initialize AMP if usable:
@@ -216,11 +219,11 @@ class WMPDKRunnerG1:
         prop_dim = self.env.cfg.env.prop_dim # modified for G1
         image_shape = self.env.cfg.depth.resized + (1,)
 
-        # Partial prop
-        # obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
+        if self.wm_access_prop: # FUll prop
+            obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
 
-        # Full prop
-        obs_shape = {'prop': (12,), 'image': image_shape,}
+        else: # Partial prop
+            obs_shape = {'prop': (12,), 'image': image_shape,}
         self._world_model = WorldModel(self.wm_config, obs_shape, use_camera=True) # Always set as True for G1, use depth_camera or height maps
         self._world_model = self._world_model.to(self._world_model.device)
         print('Finish construct world model')
@@ -266,15 +269,18 @@ class WMPDKRunnerG1:
         sum_wm_dataset_size = 0
         wm_latent = wm_action = None
         wm_is_first = torch.ones(self.env.num_envs, device=self._world_model.device)
-        wm_obs = {
-            # Modified PROP : 3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity
-            "prop": obs[:, self.env.privileged_dim-3: self.env.privileged_dim + 9].to(self._world_model.device),  #Modified for G1 
-            
-            # # FULL PROP w/o base lin vel
-            # "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
-            "is_first": wm_is_first,
-        }
-
+        if self.wm_access_prop: 
+            wm_obs = {
+                # # FULL PROP w/o base lin vel
+                "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
+                "is_first": wm_is_first,
+            }
+        else:
+            wm_obs = {
+                # Modified PROP : 3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity
+                "prop": obs[:, self.env.privileged_dim-3: self.env.privileged_dim + 9].to(self._world_model.device),  #Modified for G1 
+                "is_first": wm_is_first,
+            }
         if(self.env.cfg.depth.use_camera):
             wm_obs["image"] = torch.zeros(((self.env.num_envs,) + self.env.cfg.depth.resized + (1,)), device=self._world_model.device)
         wm_metrics = None
@@ -283,7 +289,6 @@ class WMPDKRunnerG1:
                                         device=self._world_model.device)
         wm_reward = torch.zeros(self.env.num_envs, device=self._world_model.device)
         wm_feature = torch.zeros((self.env.num_envs, self.wm_feature_dim))
-        # print("11111")
         self.init_wm_dataset()
 
 
@@ -317,12 +322,16 @@ class WMPDKRunnerG1:
                     # update world model input
                     wm_action_history = torch.concat(
                         (wm_action_history[:, 1:], actions.unsqueeze(1).to(self._world_model.device)), dim=1)
-                    wm_obs = {
+                    if self.wm_access_prop:
+                        wm_obs = {
+                                # # FULL PROP w/o base lin vel
+                                "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
+                                "is_first": wm_is_first,
+                                }
+                    else:
+                        wm_obs = {
                             # Modified PROP : 3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity
                             "prop": obs[:, self.env.privileged_dim-3: self.env.privileged_dim + 9].to(self._world_model.device),  #Modified for G1 
-                            
-                            # # FULL PROP w/o base lin vel
-                            # "prop": obs[:, self.env.privileged_dim: self.env.privileged_dim + self.env.cfg.env.prop_dim].to(self._world_model.device),  #Modified for G1
                             "is_first": wm_is_first,
                              }
 
@@ -414,9 +423,9 @@ class WMPDKRunnerG1:
                 start = stop
                 self.alg.compute_returns(critic_obs, wm_feature.to(self.env.device))
             if self.use_amp:
-                mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss = self.alg.update_amp()
+                mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss = self.alg.update_amp()
             else:
-                mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss = self.alg.update()
+                mean_sym_loss, mean_value_loss, mean_surrogate_loss, mean_vel_predict_loss, mean_amp_loss, mean_grad_pen_loss, mean_policy_pred, mean_expert_pred, mean_DK_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             if self.log_dir is not None:
@@ -449,18 +458,44 @@ class WMPDKRunnerG1:
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
     def init_wm_dataset(self):
-        self.wm_dataset = {
+        if self.wm_access_prop:
+            self.wm_dataset = {
+                # Full prop
+                "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+                                    device=self._world_model.device),
+                "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
+                                    self.env.num_actions * self.wm_update_interval), device=self._world_model.device),
+                "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
+                                    device=self._world_model.device),
+            }
+            self.wm_buffer = {
+            # FULL prop
+            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
+                                device='cpu'),
+            "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
+                                   self.env.num_actions * self.wm_update_interval), device='cpu'),
+            "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
+                                  device='cpu'),
+            }
+        else:
+            self.wm_dataset = {
             # Partial prop
             "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, 12),
                                 device=self._world_model.device),
-            # Full prop
-            # "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
-            #                     device=self._world_model.device),
             "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                                    self.env.num_actions * self.wm_update_interval), device=self._world_model.device),
             "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
                                   device=self._world_model.device),
-        }
+            }
+            self.wm_buffer = {
+            # Partial prop
+            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, 12),
+                                device='cpu'),
+            "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
+                                   self.env.num_actions * self.wm_update_interval), device='cpu'),
+            "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
+                                  device='cpu'),
+            }
         if(self.env.cfg.depth.use_camera):
             self.wm_dataset["image"] = torch.zeros(((self.env.cfg.depth.camera_num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,)
                                                + self.env.cfg.depth.resized + (1,)), device=self._world_model.device)
@@ -474,18 +509,8 @@ class WMPDKRunnerG1:
 
         self.wm_dataset_size = np.zeros(self.env.num_envs)
 
-        self.wm_buffer = {
-            # Partial prop
-            "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, 12),
-                                device='cpu'),
-            # FULL prop
-            # "prop": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3, self.env.cfg.env.prop_dim),
-            #                     device='cpu'),
-            "action": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
-                                   self.env.num_actions * self.wm_update_interval), device='cpu'),
-            "reward": torch.zeros((self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,),
-                                  device='cpu'),
-        }
+
+
         if(self.env.cfg.depth.use_camera):
             self.wm_buffer["image"] = torch.zeros(((self.env.cfg.depth.camera_num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,)
                                                + self.env.cfg.depth.resized + (1,)), device='cpu')
@@ -496,7 +521,6 @@ class WMPDKRunnerG1:
             self.wm_buffer["forward_height_map"] = torch.zeros(
                 (self.env.num_envs, int(self.env.max_episode_length / self.wm_update_interval) + 3,
                  self.env.cfg.env.forward_height_dim), device='cpu')
-        # print("111")
         self.wm_buffer_index = np.zeros(self.env.num_envs)
 
     def train_depth_predictor(self):

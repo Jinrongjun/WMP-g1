@@ -37,7 +37,6 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 from torch.nn.modules import rnn
-
 from .state_estimator_DK import DeepKoopman
 
 # 搞定KOOPMAN部分需要：1. 网络初始化 2. 改 act_interface
@@ -66,6 +65,9 @@ class ActorCriticDKWMP(nn.Module):
                  wm_latent_dim=16,
                  dk_latent_dim=128,
                  num_history=5,
+                 use_observation_function=True,
+                 w_delta_s = 0.0,
+                 w_delta_a = 0.0,
                  **kwargs):
         if kwargs:
             print("ActorCritic.__init__ got unexpected arguments, which will be ignored: " + str(
@@ -73,6 +75,8 @@ class ActorCriticDKWMP(nn.Module):
         super(ActorCriticDKWMP, self).__init__()
 
         activation = get_activation(activation)
+        self.w_delta_a = w_delta_a
+        self.w_delta_s = w_delta_s
 
         self.latent_dim = latent_dim
         self.height_dim = height_dim
@@ -83,19 +87,29 @@ class ActorCriticDKWMP(nn.Module):
         mlp_input_dim_a = latent_dim + 3 + wm_latent_dim #+ dk_latent_dim #latent vector + command + wm_latent
         mlp_input_dim_c = num_critic_obs + wm_latent_dim   # TODO: crtic要不要加上dk latent
 
-        # History Encoder
 
+
+        # Deep Koopman
+        self.deep_koopman = DeepKoopman(
+            num_obs=history_dim/num_history,
+            num_history= num_history,
+            num_latent=dk_latent_dim,
+            num_action= num_actions,
+            num_prop=prop_dim,
+            use_observation_function=use_observation_function)
+
+
+        # History Encoder
         # Koopman Compression Version
-        encoder_layers = []
-        encoder_layers.append(nn.Linear(dk_latent_dim * num_history, encoder_hidden_dims[0]))
-        encoder_layers.append(activation)
-        for l in range(len(encoder_hidden_dims)):
-            if l == len(encoder_hidden_dims) - 1:
-                encoder_layers.append(nn.Linear(encoder_hidden_dims[l], latent_dim))
-            else:
-                encoder_layers.append(nn.Linear(encoder_hidden_dims[l], encoder_hidden_dims[l + 1]))
-                encoder_layers.append(activation)
-        self.history_encoder = nn.Sequential(*encoder_layers)
+        # 实例化模型
+        self.history_encoder = HistoryEncoder( dk_latent_dim= dk_latent_dim,
+                                num_history = num_history,
+                                encoder_hidden_dims = encoder_hidden_dims,
+                                latent_dim = latent_dim,
+                                activation = activation,
+                                w_delta_s = w_delta_s,
+                                DK = self.deep_koopman, 
+                                num_action=num_actions)
 
         # Autoencoder version
         # encoder_layers = []
@@ -163,13 +177,7 @@ class ActorCriticDKWMP(nn.Module):
         self.critic = nn.Sequential(*critic_layers)
 
 
-        # Deep Koopman
-        self.deep_koopman = DeepKoopman(
-            num_obs=history_dim/num_history,
-            num_history= num_history,
-            num_latent=dk_latent_dim,
-            num_action= num_actions,
-            num_prop=prop_dim)
+
 
         print(f"Actor MLP: {self.actor}")
         print(f"Critic MLP: {self.critic}")
@@ -227,8 +235,11 @@ class ActorCriticDKWMP(nn.Module):
         # wm_latent_vector = self.wm_feature_encoder(wm_feature)
         # concat_observations = torch.concat((latent_vector, command, wm_latent_vector, dk_latent),
         #                                    dim=-1)
-        # Deep koopman encode
 
+
+
+        # Deep koopman encode
+        # print("his_size:", history.size())
         DK_embeded_history = self.deep_koopman.history_encode(history)
         latent_vector = self.history_encoder(DK_embeded_history)
         command = observations[:, self.privileged_dim + 6:self.privileged_dim + 9]
@@ -237,7 +248,11 @@ class ActorCriticDKWMP(nn.Module):
         concat_observations = torch.concat((latent_vector, command, wm_latent_vector),
                                            dim=-1)
         self.update_distribution(concat_observations)
-        return self.distribution.sample()
+        action = self.distribution.sample()
+        propagated_state = self.deep_koopman.state_propagate(DK_embeded_history[..., -self.dk_latent_dim:], action)
+        delta_action = self.w_delta_a * self.deep_koopman.forward_planner(propagated_state)
+        modified_action = action + delta_action
+        return modified_action
 
     def get_latent_vector(self, observations, history, **kwargs):
         DK_embeded_history = self.deep_koopman.history_encode(history)
@@ -262,7 +277,10 @@ class ActorCriticDKWMP(nn.Module):
         concat_observations = torch.concat((latent_vector, command, wm_latent_vector, dk_latent),
                                            dim=-1)
         actions_mean = self.actor(concat_observations)
-        return actions_mean
+        propagated_state = self.deep_koopman.propagate(DK_embeded_history[..., -self.dk_latent_dim], actions_mean)
+        delta_action = self.w_delta_a * self.deep_koopman.forward_planner(propagated_state)
+        modified_actions_mean = actions_mean + delta_action
+        return modified_actions_mean
 
     def evaluate(self, critic_observations, wm_feature,  **kwargs):
         wm_latent_vector = self.critic_wm_feature_encoder(wm_feature)
@@ -273,6 +291,82 @@ class ActorCriticDKWMP(nn.Module):
 
         value = self.critic(concat_observations)
         return value
+
+
+
+class HistoryEncoder(nn.Module):
+    def __init__(self, 
+                 dk_latent_dim: int,
+                 num_history: int,
+                 encoder_hidden_dims: list,
+                 latent_dim: int,
+                 activation=nn.ELU(),
+                 w_delta_s: float = 0.0, 
+                 num_action: int = 29,
+                 DK=None):
+        super().__init__()
+        
+        # 参数校验
+        assert dk_latent_dim > 0, "dk_latent_dim 必须为正整数"
+        assert num_history > 0, "num_history 必须为正整数"
+        assert len(encoder_hidden_dims) > 0, "encoder_hidden_dims 不能为空列表"
+
+        # 初始化参数
+        self.dk_latent_dim = dk_latent_dim
+        self.num_history = num_history
+        self.num_action = num_action
+        self.w_delta_s = w_delta_s
+        self.DK = DK  # 允许为None，表示不启用DK模块
+        
+        # 激活函数
+        self.activation = activation
+        
+        # 构建编码器
+        encoder_layers = []
+        input_dim = (dk_latent_dim + num_action) * num_history
+        
+        # 输入层
+        encoder_layers.append(nn.Linear(input_dim, encoder_hidden_dims[0]))
+        encoder_layers.append(self.activation)
+        
+        # 隐藏层
+        for l in range(len(encoder_hidden_dims)):
+            if l == len(encoder_hidden_dims) - 1:
+                encoder_layers.append(nn.Linear(encoder_hidden_dims[l], latent_dim))
+            else:
+                encoder_layers.append(nn.Linear(encoder_hidden_dims[l], encoder_hidden_dims[l + 1]))
+                encoder_layers.append(self.activation)
+        
+        # 封装为Sequential
+        self.history_encoder = nn.Sequential(*encoder_layers)
+        
+        # 规范化层（可选）
+        self.norm = nn.LayerNorm(latent_dim) if latent_dim > 1 else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        输入形状: (batch_size, num_history * (dk_latent_dim + num_action))
+        输出形状: (batch_size, latent_dim)
+        """
+        if self.DK is not None:
+            # DK模块处理
+            traj = self.DK.Process_history_to_traj(x, self.dk_latent_dim, self.num_history, self.num_action)
+            propagated = self.DK.state_propagate(traj['states'][:, 1:, :], traj['actions'])
+            
+            # 拼接传播结果与动作
+            propagated_his = torch.cat((propagated, traj['actions']), dim=-1)
+            propagated_his = propagated_his.reshape(-1, (self.num_history-1) * (self.dk_latent_dim + self.num_action))
+            
+            # 计算传播损失
+            propagated_loss = self.w_delta_s * propagated_his - x[..., self.dk_latent_dim + self.num_action:]
+            combined_x = torch.cat((x[..., -(self.dk_latent_dim + self.num_action):], propagated_loss), dim=-1)
+        else:
+            combined_x = x
+        
+        # 编码并规范化
+        encoded = self.history_encoder(combined_x)
+        return self.norm(encoded)
+    
 
 
 def get_activation(act_name):
