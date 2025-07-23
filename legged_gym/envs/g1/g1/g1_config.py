@@ -424,6 +424,7 @@ class G1CfgPPO(LeggedRobotCfgPPO):
         num_mini_batches = 4
 
     class runner(LeggedRobotCfgPPO.runner):
+        wm_access_prop = True
         run_name = 'flat_push1'
         experiment_name = 'g1'
         algorithm_class_name = 'AMPPPO'
@@ -456,7 +457,7 @@ class G1CfgDKPPO(LeggedRobotCfgPPO):
 
     class policy:
         init_noise_std = 1.0
-        encoder_hidden_dims = [256, 128]
+        encoder_hidden_dims = [512, 256, 128]
         wm_encoder_hidden_dims = [64, 64]
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
@@ -476,6 +477,7 @@ class G1CfgDKPPO(LeggedRobotCfgPPO):
         num_mini_batches = 4
 
     class runner(LeggedRobotCfgPPO.runner):
+        wm_access_prop = True
         run_name = 'flat_push1'
         experiment_name = 'g1_DK'
         algorithm_class_name = 'AMPDKPPO'
