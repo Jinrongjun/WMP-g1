@@ -6,6 +6,10 @@ Code for the paper:
 
 ### [🌐 Project Website](https://wmp-loco.github.io/) | [📄 Paper](https://arxiv.org/abs/2409.16784)
 
+
+## UPDATE 7.23
+添加了双修正机制（h_t 和 a_t），实现DK_ymloss，阶段完成性版本。
+
 ## UPDATE 7.17
 修复runner_DK的索引问题；修改history encoder；g1_config下网络大小对应调整；wm的prop修改成12维（3*base lin vel + 3*base ang vel + 3*command + 3*projected gravity）
 
